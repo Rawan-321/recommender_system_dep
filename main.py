@@ -42,6 +42,8 @@ class Request(BaseModel):
 @app.post("/recommend")
 def create_trip(details: Request):
     trip = get_recommendations(details.check_in, details.check_out)
+    if not trip:
+        raise HTTPException(status_code=404, detail="trip empty")
     return trip
 
 # ---- Recommendation ---- #
@@ -93,7 +95,7 @@ def create_user_profile(tfidfvec, df):
 
 
 def load_destinations_data():
-    with open(r"C:\Users\rawan\PycharmProjects\RecommenderSystem\destinations.json", 'r') as json_file:
+    with open("destinations.json", 'r') as json_file:
         destinations = json.load(json_file)
 
     df = pd.DataFrame(destinations.items(), columns=['city_name', 'description'])
