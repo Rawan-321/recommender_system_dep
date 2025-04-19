@@ -7,29 +7,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 tfidfvec = TfidfVectorizer(min_df=2, max_df=0.9)
-api_key = "8361080d15f36ff3f72d44ad761e5655141ef42cf0c216af734ff69460e0ed6e"
-user_preference_dict = {
-                        "initial_preferences": ["London", "historical sites", "Spring"],
-                        "history": [
-                                    "The Marmara Taksim Posh high-rise hotel with a pair of restaurants, "
-                                    "plus a chic spa, "
-                                    "a rooftop pool & a chocolate shop. rating 4.4 total number of reviews 5368 price"
-                                    " per night70 5-star hotel",
-
-                                    "Radisson Blu Hotel, London Tottenham Court Road (formerly Kenilworth)"
-                                    " Fashionable rooms & "
-                                    "suites in an upscale hotel with a modern restaurant/bar & a gym. "
-                                    "rating 4 total number of "
-                                    "reviews 1978 price per night 593 4-star hotel",
-
-                                    "Millennium Hotel London Knightsbridge Modern rooms & suites in "
-                                    "a polished hotel featuring "
-                                    "a relaxed cafe/bar & meeting space. rating 4.3 total number of "
-                                    "reviews 2736 price per night "
-                                    "634 4-star hotel"
-                        ]
-                    }
-
+api_key = "aafe6ff1ce31c14363eabc2b2c327ddf1585266052ddba338769485d5dfbfc2b"
 
 app = FastAPI()
 
@@ -37,25 +15,30 @@ app = FastAPI()
 class Request(BaseModel):
     check_in: str
     check_out: str
+    user_profile: dict
 
 
 @app.post("/recommend")
 def create_trip(details: Request):
-    trip = get_recommendations(details.check_in, details.check_out)
+    trip = get_recommendations(details.check_in, details.check_out, details.user_profile)
     if not trip:
         raise HTTPException(status_code=404, detail="trip empty")
+    if not details.user_profile:
+        raise HTTPException(status_code=404, detail="user profile empty")
+    print(trip)
     return trip
 
 # ---- Recommendation ---- #
 
 
-def get_recommendations(start_date, end_date):
+def get_recommendations(start_date, end_date, user_profile):
     # should return at least one result
     recommendation = {}
-    destination = get_destinations_data()
+    destination = get_destinations_data(user_profile)
     if destination != "":
-        hotel_info = get_accommodation_data(q=destination, check_in=start_date, check_out=end_date)
-        activities_info = get_activities_data(destination)
+        hotel_info = get_accommodation_data(q=destination, check_in=start_date, check_out=end_date,
+                                            user_profile=user_profile)
+        activities_info = get_activities_data(destination, user_profile)
 
         recommendation["destination"] = destination
         recommendation["accommodation"] = hotel_info
@@ -63,17 +46,27 @@ def get_recommendations(start_date, end_date):
 
         return recommendation
     else:
-        print("no results")
+        return recommendation
 
 
 # ---- user profile ---- #
 
 
-def create_user_profile(tfidfvec, df):
-    user_history_and_preference_df = pd.DataFrame(user_preference_dict)
+def create_user_profile(tfidfvec, df, user_profile):
+    padding_values = ""
+    max_list_length = 0
+    for key in user_profile.keys():
+        max_list_length = max(max_list_length, len(user_profile[key]))
+
+    for dict_values in user_profile.keys():
+        while len(user_profile[dict_values]) < max_list_length:
+            user_profile[dict_values].append(padding_values)
+
+    user_history_and_preference_df = pd.DataFrame(user_profile)
 
     user_history_and_preference_df["combined_data"] = (user_history_and_preference_df['initial_preferences'] + ' ' +
                                                        user_history_and_preference_df['history'])
+    print(user_history_and_preference_df)
 
     vectorized_data = tfidfvec.transform(user_history_and_preference_df['combined_data'])
     tfidf_df = pd.DataFrame(vectorized_data.toarray(),
@@ -114,10 +107,10 @@ def create_destinations_vectors(df):
     return tfidf_df
 
 
-def get_destinations_data():
+def get_destinations_data(user_profile):
     df = load_destinations_data()
     destinations_df = create_destinations_vectors(df=df)
-    sorted_destinations_similarities = create_user_profile(tfidfvec, destinations_df)
+    sorted_destinations_similarities = create_user_profile(tfidfvec, destinations_df, user_profile)
     # print(sorted_destinations_similarities.to_string())
     return sorted_destinations_similarities.index.values[0]
 
@@ -179,7 +172,7 @@ def create_accommodations_vectors(df):
     return tfidf_df
 
 
-def get_accommodation_data(q: str, check_in, check_out):
+def get_accommodation_data(q: str, check_in, check_out, user_profile):
     empty_df = pd.DataFrame()
     params = {
         "engine": "google_hotels",
@@ -201,7 +194,7 @@ def get_accommodation_data(q: str, check_in, check_out):
         if df.empty:
             return empty_df
         accommodations_df = create_accommodations_vectors(df)
-        sorted_accommodations_similarities = create_user_profile(tfidfvec, accommodations_df)
+        sorted_accommodations_similarities = create_user_profile(tfidfvec, accommodations_df, user_profile)
         hotel_name = sorted_accommodations_similarities.index.values[0]
         hotel_info = df.loc[df['name'] == hotel_name]
         hotel_complete_info = {}
@@ -287,7 +280,7 @@ def create_activities_vectors(df):
     return tfidf_df
 
 
-def get_activities_data(q: str):
+def get_activities_data(q: str, user_profile):
     empty_df = pd.DataFrame()
     activities_list =[]
     activities_dict = {}
@@ -305,7 +298,7 @@ def get_activities_data(q: str):
         if df.empty:
             return empty_df
         activities_df = create_activities_vectors(df)
-        sorted_activities_similarities = create_user_profile(tfidfvec, activities_df)
+        sorted_activities_similarities = create_user_profile(tfidfvec, activities_df, user_profile)
         for i in range(len(sorted_activities_similarities)):
             activity_title = sorted_activities_similarities.index.values[i]
             activity_info = df.loc[df['title'] == activity_title]
