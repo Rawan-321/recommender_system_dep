@@ -15,34 +15,34 @@ app = FastAPI()
 class Request(BaseModel):
     check_in: str
     check_out: str
-    user_profile: dict
+    user_data: dict
 
 
 @app.post("/recommend")
 def create_trip(details: Request):
-    trip = get_recommendations(details.check_in, details.check_out, details.user_profile)
+    trip = get_recommendations(details.check_in, details.check_out, details.user_data)
     if not trip:
         raise HTTPException(status_code=404, detail="trip empty")
-    if not details.user_profile:
+    if not details.user_data:
         raise HTTPException(status_code=404, detail="user profile empty")
     print(trip)
     return trip
 
-# ---- Recommendation ---- #
 
-
-def get_recommendations(start_date, end_date, user_profile):
+def get_recommendations(start_date, end_date, user_data):
     # should return at least one result
     recommendation = {}
-    destination = get_destinations_data(user_profile)
+    destination = get_destinations_data(user_data)  # finding destination based on the user profile
     if destination != "":
+        # finding recommended accommodation using the recommended destination, user's trip history data, and trip dates
         hotel_info = get_accommodation_data(q=destination, check_in=start_date, check_out=end_date,
-                                            user_profile=user_profile)
-        activities_info = get_activities_data(destination, user_profile)
+                                            user_data=user_data)
+        # finding recommended activities using the recommended destination, user's tri
+        activities_info = get_activities_data(destination, user_data)
 
         recommendation["destination"] = destination
         recommendation["accommodation"] = hotel_info
-        recommendation["activitie"] = activities_info
+        recommendation["activities"] = activities_info
 
         return recommendation
     else:
@@ -52,36 +52,34 @@ def get_recommendations(start_date, end_date, user_profile):
 # ---- user profile ---- #
 
 
-def create_user_profile(tfidfvec, df, user_profile):
+def create_user_profile(tfidfvec, df, user_data):
     padding_values = ""
     max_list_length = 0
-    for key in user_profile.keys():
-        max_list_length = max(max_list_length, len(user_profile[key]))
+    for key in user_data.keys():  # finding the length of the user's history data and preferences lists
+        max_list_length = max(max_list_length, len(user_data[key]))
 
-    for dict_values in user_profile.keys():
-        while len(user_profile[dict_values]) < max_list_length:
-            user_profile[dict_values].append(padding_values)
+    for dict_values in user_data.keys():  # adding padding value to balance the different lists length
+        while len(user_data[dict_values]) < max_list_length:
+            user_data[dict_values].append(padding_values)
 
-    user_history_and_preference_df = pd.DataFrame(user_profile)
-
+    user_history_and_preference_df = pd.DataFrame(user_data)  # transforming user_data dictionary into Pandas DataFrame
+    # combining user's history and preferences into one column for TF-IDF vectorization
     user_history_and_preference_df["combined_data"] = (user_history_and_preference_df['initial_preferences'] + ' ' +
                                                        user_history_and_preference_df['history'])
     print(user_history_and_preference_df)
-
+    # transforming data into vectors
     vectorized_data = tfidfvec.transform(user_history_and_preference_df['combined_data'])
     tfidf_df = pd.DataFrame(vectorized_data.toarray(),
-                            columns=tfidfvec.get_feature_names_out())
-    user_profile = tfidf_df.mean()
-    # user_profile_array = user_profile.values.reshape(1, -1)
-    # user_profile_df = pd.DataFrame(user_profile_array,
-    #                                index=['user'])
-
+                            columns=tfidfvec.get_feature_names_out())  # adding the vectorized data into a dataframe
+    user_profile = tfidf_df.mean()  # finding the mean of the vectorized data to represent the user profile
+    # finding the cosine similarity between the user profile and the received df
     user_profile_similarities = cosine_similarity(user_profile.values.reshape(1, -1), df)
     user_profile_similarities_df = pd.DataFrame(user_profile_similarities.T,
                                                 index=df.index,
                                                 columns=["similarity_score"])
+    # sorting the similarities values in descending order, the most similar items score highest
     sorted_similarities_df = user_profile_similarities_df.sort_values('similarity_score', ascending=False)
-    return sorted_similarities_df.head()
+    return sorted_similarities_df.head()  # returning the five most similar items
 
 
 # ---- destinations ---- #
@@ -124,7 +122,7 @@ def clean_json_data(api_json):
     filtered_properties = []
     df = pd.DataFrame(columns=['name', 'description', 'rating', 'reviews', 'price', 'hotel_class'])
 
-    # from line 41 to line 49 json data is filtered so all contain necessity attributes
+    # from line 125 to line 134 json data is filtered so all contain necessity attributes
     if 'properties' in all_json_data:
         properties_list = all_json_data['properties']
 
@@ -136,7 +134,7 @@ def clean_json_data(api_json):
         properties_list = filtered_properties  # this contains the data that will be used to get the recommended
         # accommodation to send to the application
 
-        # from line 69 to 79, loading data from the properties list to dataframe
+        # from line 137 to 147, loading data from the properties list to dataframe
         for i in range(0, len(properties_list)):
             df.loc[i] = [properties_list[i]['name'],
                          properties_list[i]['description'],
@@ -148,7 +146,6 @@ def clean_json_data(api_json):
                                ' total number of reviews ' + df['reviews'] + ' price per night ' +
                                df['price'] + ' ' + df['hotel_class'])
 
-        # print(df.to_string())
         return df, properties_list
 
     else:
@@ -172,7 +169,7 @@ def create_accommodations_vectors(df):
     return tfidf_df
 
 
-def get_accommodation_data(q: str, check_in, check_out, user_profile):
+def get_accommodation_data(q: str, check_in, check_out, user_data):
     empty_df = pd.DataFrame()
     params = {
         "engine": "google_hotels",
@@ -194,7 +191,7 @@ def get_accommodation_data(q: str, check_in, check_out, user_profile):
         if df.empty:
             return empty_df
         accommodations_df = create_accommodations_vectors(df)
-        sorted_accommodations_similarities = create_user_profile(tfidfvec, accommodations_df, user_profile)
+        sorted_accommodations_similarities = create_user_profile(tfidfvec, accommodations_df, user_data)
         hotel_name = sorted_accommodations_similarities.index.values[0]
         hotel_info = df.loc[df['name'] == hotel_name]
         hotel_complete_info = {}
@@ -235,7 +232,7 @@ def clean_activities_json_data(api_json):
     filtered_activities = []
     df = pd.DataFrame(columns=['title', 'description', 'rating', 'reviews'])
 
-    # from line 41 to line 49 json data is filtered so all contain necessity attributes
+    # from line 236 to line 243 json data is filtered so all contain necessity attributes
     if 'events_results' in all_json_data:
         activities_list = all_json_data['events_results']
 
@@ -246,9 +243,7 @@ def clean_activities_json_data(api_json):
         activities_list = filtered_activities  # this contains the data that will be used to get the recommended
         # activities to send to the application
 
-        # go over the address
-
-        # from line 69 to 79, loading data from the activities list to dataframe
+        # from line 247 to 253, loading data from the activities list to dataframe
         for i in range(0, len(activities_list)):
             df.loc[i] = [activities_list[i]['title'],
                          activities_list[i]['description'],
@@ -282,7 +277,7 @@ def create_activities_vectors(df):
 
 def get_activities_data(q: str, user_profile):
     empty_df = pd.DataFrame()
-    activities_list =[]
+    activities_list = []
     activities_dict = {}
     params = {
         "engine": "google_events",
