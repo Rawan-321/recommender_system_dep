@@ -7,7 +7,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 tfidfvec = TfidfVectorizer(min_df=2, max_df=0.9)
-api_key = "aafe6ff1ce31c14363eabc2b2c327ddf1585266052ddba338769485d5dfbfc2b"
+api_key = "8361080d15f36ff3f72d44ad761e5655141ef42cf0c216af734ff69460e0ed6e"
 
 app = FastAPI()
 
